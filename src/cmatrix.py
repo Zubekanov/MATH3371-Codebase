@@ -7,8 +7,6 @@ class _cache_keys(Enum):
     transpose   = "transpose"
 
 class cMatrix:
-    _row_major_contents = [[]]
-
     # Cache for calculatable properties.
     _cached_values = {}
     # Decorator to reset cache
@@ -20,42 +18,61 @@ class cMatrix:
     
     @property
     def T(self):
-        if _cache_keys.transpose.value not in self._cached_values.keys:
+        if _cache_keys.transpose.value not in self._cached_values.keys():
             self._cached_values[_cache_keys.transpose.value] = [[self[j][i] for j in range(self.rows)] for i in range(self.cols)]
         return cMatrix(self._cached_values[_cache_keys.transpose.value])
     
     @property
     def cols(self):
-        if _cache_keys.cols.value not in self._cached_values.keys:
+        if _cache_keys.cols.value not in self._cached_values.keys():
             self._cached_values[_cache_keys.cols.value] = len(self._row_major_contents[0])
         return self._cached_values[_cache_keys.cols.value]
     
     @property
     def rows(self):
-        if _cache_keys.rows.value not in self._cached_values.keys:
+        if _cache_keys.rows.value not in self._cached_values.keys():
             self._cached_values[_cache_keys.rows.value] = len(self._row_major_contents)
         return self._cached_values[_cache_keys.rows.value]
     
     @property
     def det(self):
-        if _cache_keys.det.value not in self._cached_values.keys:
-            self._cached_values[_cache_keys.det.value] = self._calculate_determinant()
+        if _cache_keys.det.value not in self._cached_values.keys():
+            self._cached_values[_cache_keys.det.value] = self._calculate_determinant(self._row_major_contents)
         return self._cached_values[_cache_keys.det.value]
     
-    def _calculate_determinant(self):
-        if self.cols != self.rows:
-            raise ValueError("Matrix must be square to calculate determinant.")
-        if self.cols == 1:
-            return self[0][0]
-        if self.cols == 2:
-            return self[0][0] * self[1][1] - self[0][1] * self[1][0]
+    def _calculate_determinant(self, matrix):
+        n = len(matrix)
+        if any(len(row) != n for row in matrix):
+            raise ValueError("Matrix must be square")
+
+        if n == 1:
+            return matrix[0][0]
+        if n == 2:
+            return matrix[0][0] * matrix[1][1] - matrix[0][1] * matrix[1][0]
+
         det = 0
-        for i in range(self.cols):
-            det += self[0][i] * self._submatrix(0, i).det * (-1)**i
+        for c in range(n):
+            minor = [row[:c] + row[c+1:] for row in matrix[1:]]
+            det += ((-1) ** c) * matrix[0][c] * self._calculate_determinant(minor)
         return det
-    
-    def _submatrix(self, row, col):
-        return cMatrix([row[:col] + row[col+1:] for row in self._row_major_contents[:row] + self._row_major_contents[row+1:]])
+
+    def lu_decomposition(self):
+        if self.rows != self.cols:
+            raise ValueError("LU decomposition requires a square matrix.")
+        n = self.rows
+        L = [[1.0 if i == j else 0.0 for j in range(n)] for i in range(n)]
+        U = [[0.0 for _ in range(n)] for _ in range(n)]
+        multipliers = {}
+        counter = 1
+        
+        for k in range(n):
+            for j in range(k, n):
+                U[k][j] = self._row_major_contents[k][j] - sum(L[k][s] * U[s][j] for s in range(k))
+            for i in range(k + 1, n):
+                L[i][k] = (self._row_major_contents[i][k] - sum(L[i][s] * U[s][k] for s in range(k))) / U[k][k]
+                multipliers[f"m{counter}"] = L[i][k]
+                counter += 1
+        return L, U, multipliers
 
     def __init__(self, contents: list[list[float]]):
         self._row_major_contents = contents
@@ -73,10 +90,18 @@ class cMatrix:
         self._row_major_contents[key] = value
 
     def __str__(self):
-        return str(self._row_major_contents)
+        # Align columns
+        max_widths = [max([len(str(row[i])) for row in self._row_major_contents]) for i in range(self.cols)]
+        res = ""
+        for row in self._row_major_contents:
+            res += "|"
+            for i in range(len(row)):
+                res += f"{str(row[i]):>{max_widths[i]}} "
+            res += "|\n"
+        return res
 
     def __repr__(self):
-        return str(self._row_major_contents)
+        return self.__str__()
 
     # TODO: Implement radd, rsub, rmul for numpy compatibility.
     def __add__(self, value):
@@ -116,3 +141,11 @@ class cMatrix:
         if isinstance(value, (int, float)):
             return cMatrix([[self[i][j] * value for j in range(self.cols)] for i in range(self.rows)])
         return NotImplemented
+
+if __name__ == "__main__":
+    test_matrix = cMatrix([[ 5, -1,  3,  0],
+                           [ 2,  3,  0,  1],
+                           [ 3,  0,  2,  4],
+                           [ 1,  6, -7,  3]])
+    print(f"Matrix:\n{test_matrix}")
+    print(f"LU Decomposition:\n{test_matrix.lu_decomposition()}")
