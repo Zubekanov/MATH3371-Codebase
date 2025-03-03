@@ -7,6 +7,8 @@ class _cache_keys(Enum):
     det         = "determinant"
     transpose   = "transpose"
     lu          = "lu_decomposition"
+    qr          = "qr_decomposition"
+    inverse     = "inverse"
 
 class cMatrix:
     # Decorator to reset cache
@@ -89,7 +91,19 @@ class cMatrix:
         return self._cached_values[_cache_keys.qr.value]
     
     def qr_decomposition(self):
-        pass
+        return NotImplemented
+
+    @property
+    def inverse(self):
+        if _cache_keys.inverse.value not in self._cached_values.keys():
+            self._cached_values[_cache_keys.inverse.value] = self._calculate_inverse()
+        return self._cached_values[_cache_keys.inverse.value]
+    
+    def _calculate_inverse(self):
+        # Generate cofactors matrix.
+        cofactors = [[((-1) ** (i+j)) * self._calculate_determinant([row[:j] + row[j+1:] for row in self._row_major_contents[:i] + self._row_major_contents[i+1:]]) for j in range(self.cols)] for i in range(self.rows)]
+        adjugate = cMatrix(cofactors).T
+        return adjugate * (1 / self.det)
 
     def __init__(self, contents: list[list]):
         if not all(len(row) == len(contents[0]) for row in contents):
@@ -140,7 +154,7 @@ class cMatrix:
             if value.cols != self.cols or value.rows != self.rows:
                 raise ValueError(f"Incorrect dimensions for addition. {self.rows}x{self.cols} != {value.rows}x{value.cols}")
             return cMatrix([[self[i][j] + value[i][j] for j in range(self.cols)] for i in range(self.rows)])
-        if isinstance(value, (int, float)):
+        if isinstance(value, (int, float, Fraction)):
             return cMatrix([[self[i][j] + value for j in range(self.cols)] for i in range(self.rows)])
         return NotImplemented
 
@@ -152,7 +166,7 @@ class cMatrix:
             if value.cols != self.cols or value.rows != self.rows:
                 raise ValueError(f"Incorrect dimensions for subtraction. {self.rows}x{self.cols} != {value.rows}x{value.cols}")
             return cMatrix([[self[i][j] - value[i][j] for j in range(self.cols)] for i in range(self.rows)])
-        if isinstance(value, (int, float)):
+        if isinstance(value, (int, float, Fraction)):
             return cMatrix([[self[i][j] - value for j in range(self.cols)] for i in range(self.rows)])
         return NotImplemented
     
@@ -164,12 +178,12 @@ class cMatrix:
             if self.cols != value.rows:
                 raise ValueError(f"Incorrect dimensions for multiplication. {self.rows}x{self.cols} cannot multiply {value.rows}x{value.cols}")
             return cMatrix([[sum(self[i][k] * value[k][j] for k in range(self.cols)) for j in range(value.cols)] for i in range(self.rows)])
-        if isinstance(value, (int, float)):
+        if isinstance(value, (int, float, Fraction)):
             return cMatrix([[self[i][j] * value for j in range(self.cols)] for i in range(self.rows)])
         return NotImplemented
     
     def __rmul__(self, value):
-        if isinstance(value, (int, float)):
+        if isinstance(value, (int, float, Fraction)):
             return cMatrix([[self[i][j] * value for j in range(self.cols)] for i in range(self.rows)])
         return NotImplemented
 
@@ -179,4 +193,4 @@ if __name__ == "__main__":
                            [ 3,  0,  2,  4],
                            [ 1,  6, -7,  3]])
     print(f"Matrix:\n{test_matrix}")
-    print(f"LU Decomposition:\n{test_matrix.lu_decomposition()}")
+    print(f"Inverse:\n{test_matrix.inverse}")
