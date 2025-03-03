@@ -1,14 +1,14 @@
 from enum import Enum
+from fractions import Fraction
 
 class _cache_keys(Enum):
     cols        = "columns"
     rows        = "rows"
     det         = "determinant"
     transpose   = "transpose"
+    lu          = "lu_decomposition"
 
 class cMatrix:
-    # Cache for calculatable properties.
-    _cached_values = {}
     # Decorator to reset cache
     def _reset_cache(func):
         def wrapper(self, *args, **kwargs):
@@ -56,26 +56,54 @@ class cMatrix:
             det += ((-1) ** c) * matrix[0][c] * self._calculate_determinant(minor)
         return det
 
+    @property
+    def lu(self):
+        if _cache_keys.lu.value not in self._cached_values.keys():
+            self._cached_values[_cache_keys.lu.value] = self.lu_decomposition()
+        return self._cached_values[_cache_keys.lu.value]
+    
     def lu_decomposition(self):
-        if self.rows != self.cols:
-            raise ValueError("LU decomposition requires a square matrix.")
-        n = self.rows
-        L = [[1.0 if i == j else 0.0 for j in range(n)] for i in range(n)]
-        U = [[0.0 for _ in range(n)] for _ in range(n)]
-        multipliers = {}
-        counter = 1
-        
-        for k in range(n):
-            for j in range(k, n):
-                U[k][j] = self._row_major_contents[k][j] - sum(L[k][s] * U[s][j] for s in range(k))
-            for i in range(k + 1, n):
-                L[i][k] = (self._row_major_contents[i][k] - sum(L[i][s] * U[s][k] for s in range(k))) / U[k][k]
-                multipliers[f"m{counter}"] = L[i][k]
-                counter += 1
-        return L, U, multipliers
+        # Check if any of the pivots are zero or very close to zero.
+        if any(abs(self[i][i]) < 1e-10 for i in range(self.rows)):
+            # TODO: Implement pivoting.
+            raise ValueError("Matrix is singular")
+        result = self.copy()
+        # Perform the factorisation in place.
+        for i in range(result.rows):
+            for j in range(i+1, result.rows):
+                result[j][i] /= result[i][i]
+                for k in range(i+1, result.cols):
+                    result[j][k] -= result[j][i] * result[i][k]
+        # Separate the L and U matrices.
+        L = [[result[i][j] if i > j else 0 for j in range(result.cols)] for i in range(result.rows)]
+        # Add 1 to the diagonal of L.
+        for i in range(result.rows):
+            L[i][i] = 1
+        U = [[result[i][j] if i <= j else 0 for j in range(result.cols)] for i in range(result.rows)]
+        return (cMatrix(L), cMatrix(U))
+    
+    @property
+    def qr(self):
+        if _cache_keys.qr.value not in self._cached_values.keys():
+            self._cached_values[_cache_keys.qr.value] = self.qr_decomposition()
+        return self._cached_values[_cache_keys.qr.value]
+    
+    def qr_decomposition(self):
+        pass
 
-    def __init__(self, contents: list[list[float]]):
-        self._row_major_contents = contents
+    def __init__(self, contents: list[list]):
+        if not all(len(row) == len(contents[0]) for row in contents):
+            raise ValueError("Matrix must be rectangular")
+        # Ints and Floats are converted to Fractions, Fractions are kept.
+        if not all(isinstance(cell, (int, float, Fraction)) for row in contents for cell in row):
+            raise ValueError("Matrix must contain only ints, floats, or Fractions")
+        self._row_major_contents = [[Fraction(cell).limit_denominator() if isinstance(cell, (int, float)) else cell for cell in row] for row in contents]
+        self._cached_values = {}
+
+    def copy(self):
+        copy = cMatrix(self._row_major_contents)
+        copy._cached_values = self._cached_values.copy()
+        return copy
 
     def __eq__(self, value):
         if not isinstance(value, cMatrix):
@@ -90,13 +118,16 @@ class cMatrix:
         self._row_major_contents[key] = value
 
     def __str__(self):
-        # Align columns
-        max_widths = [max([len(str(row[i])) for row in self._row_major_contents]) for i in range(self.cols)]
-        res = ""
+        # Align columns and decimal points.
+        max_widths = [max([len(f"{row[i]:.4f}" if isinstance(row[i], float) else str(row[i])) for row in self._row_major_contents]) for i in range(self.cols)]
+        res = "\n"
         for row in self._row_major_contents:
             res += "|"
             for i in range(len(row)):
-                res += f"{str(row[i]):>{max_widths[i]}} "
+                if isinstance(row[i], float):
+                    res += f"{row[i]:>{max_widths[i]}.4f} "
+                else:
+                    res += f"{str(row[i]):>{max_widths[i]}} "
             res += "|\n"
         return res
 
