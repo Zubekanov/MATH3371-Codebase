@@ -9,6 +9,7 @@ class _cache_keys(Enum):
     lu          = "lu_decomposition"
     qr          = "qr_decomposition"
     inverse     = "inverse"
+    householder = "householder_transformation"
 
 class cMatrix:
     # Decorator to reset cache
@@ -17,6 +18,10 @@ class cMatrix:
             self._cached_values = {}
             return func(self, *args, **kwargs)
         return wrapper
+
+    @staticmethod
+    def identity(size: int):
+        return cMatrix([[1 if i == j else 0 for j in range(size)] for i in range(size)])
     
     @property
     def T(self):
@@ -92,6 +97,16 @@ class cMatrix:
     
     def qr_decomposition(self):
         return NotImplemented
+
+    @property
+    def householder(self):
+        if _cache_keys.householder.value not in self._cached_values.keys():
+            self._cached_values[_cache_keys.householder.value] = self.householder_transformation()
+        return self._cached_values[_cache_keys.householder.value]
+    
+    def householder_transformation(self):
+        householder = cMatrix.identity(self.rows) - 2 * self * self.T / (self.T * self)
+        return householder
 
     @property
     def inverse(self):
