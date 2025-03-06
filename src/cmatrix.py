@@ -1,5 +1,7 @@
 from enum import Enum
+import math
 from fractions import Fraction
+import sympy
 
 class _cache_keys(Enum):
     cols        = "columns"
@@ -66,10 +68,10 @@ class cMatrix:
     @property
     def lu(self):
         if _cache_keys.lu.value not in self._cached_values.keys():
-            self._cached_values[_cache_keys.lu.value] = self.lu_decomposition()
+            self._cached_values[_cache_keys.lu.value] = self._lu_decomposition()
         return self._cached_values[_cache_keys.lu.value]
     
-    def lu_decomposition(self):
+    def _lu_decomposition(self):
         # Check if any of the pivots are zero or very close to zero.
         if any(abs(self[i][i]) < 1e-10 for i in range(self.rows)):
             # TODO: Implement pivoting.
@@ -92,21 +94,68 @@ class cMatrix:
     @property
     def qr(self):
         if _cache_keys.qr.value not in self._cached_values.keys():
-            self._cached_values[_cache_keys.qr.value] = self.qr_decomposition()
+            self._cached_values[_cache_keys.qr.value] = self._qr_decomposition()
         return self._cached_values[_cache_keys.qr.value]
     
-    def qr_decomposition(self):
-        return NotImplemented
+    # Performs QR decomposition using Householder transformations.
+    def _qr_decomposition(self):
+        m, n = self.rows, self.cols
+        R = self.copy()
+        reflectors = []
+
+        for k in range(n):
+            x = [R[i][k] for i in range(k, m)]
+            norm_x = math.sqrt(sum(float(val)**2 for val in x))
+            if norm_x == 0:
+                reflectors.append((k, [0]*len(x), 0))
+                continue
+            sign = 1 if x[0] >= 0 else -1
+            v = x.copy()
+            v[0] = v[0] + sign * norm_x
+            v_dot_v = sum(float(val)**2 for val in v)
+            beta = 2 / v_dot_v
+
+            for j in range(k, n):
+                dot = sum(v[i] * R[k+i][j] for i in range(m - k))
+                for i in range(m - k):
+                    R[k+i][j] = R[k+i][j] - beta * v[i] * dot
+
+            reflectors.append((k, v, beta))
+
+        Q = cMatrix.identity(m)
+        for k, v, beta in reversed(reflectors):
+            for j in range(m):
+                dot = sum(v[i] * Q[k+i][j] for i in range(m - k))
+                for i in range(m - k):
+                    Q[k+i][j] = Q[k+i][j] - beta * v[i] * dot
+
+        return (Q, R)
 
     @property
     def householder(self):
         if _cache_keys.householder.value not in self._cached_values.keys():
-            self._cached_values[_cache_keys.householder.value] = self.householder_transformation()
+            self._cached_values[_cache_keys.householder.value] = self._householder_transformation()
         return self._cached_values[_cache_keys.householder.value]
     
-    def householder_transformation(self):
-        householder = cMatrix.identity(self.rows) - 2 * self * self.T / (self.T * self)
+    def _householder_transformation(self):
+        householder = cMatrix.identity(self.rows) - self * self.T * (2 / (self.norm() ** 2))
         return householder
+
+    def norm(self, p: int = 1, inf = False):
+        if inf:
+            if "inf_norm" not in self._cached_values.keys():
+                self._cached_values["inf_norm"] = self._calculate_norm(p, inf)
+            return self._cached_values["inf_norm"]
+        else:
+            if f"{p}_norm" not in self._cached_values.keys():
+                self._cached_values[f"{p}_norm"] = self._calculate_norm(p, inf)
+            return self._cached_values[f"{p}_norm"]
+
+    def _calculate_norm(self, p: int = 1, inf = False):
+        if inf:
+            return max(max(abs(cell) for cell in row) for row in self._row_major_contents)
+        else:
+            return (sum(sum(abs(cell) ** p for cell in row) for row in self._row_major_contents)) ** (1/p)
 
     @property
     def inverse(self):
@@ -208,4 +257,8 @@ if __name__ == "__main__":
                            [ 3,  0,  2,  4],
                            [ 1,  6, -7,  3]])
     print(f"Matrix:\n{test_matrix}")
-    print(f"Inverse:\n{test_matrix.inverse}")
+    print(f"Housholder Transformation:\n{test_matrix.householder}")
+    QR = test_matrix.qr
+    q = QR[0]
+    r = QR[1]
+    print(f"Q*R:\n{q*r}")
