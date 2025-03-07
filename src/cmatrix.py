@@ -169,6 +169,11 @@ class cMatrix:
         adjugate = cMatrix(cofactors).T
         return adjugate * (1 / self.det)
 
+    def least_squares(self, b):
+        if not b.rows == self.rows:
+            raise ValueError("Incorrect dimensions for least squares. Matrix rows must match vector length.")
+        return NotImplemented
+
     def __init__(self, contents: list[list]):
         if not all(len(row) == len(contents[0]) for row in contents):
             raise ValueError("Matrix must be rectangular")
