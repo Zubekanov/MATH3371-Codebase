@@ -99,37 +99,44 @@ class cMatrix:
     
     # Performs QR decomposition using Householder transformations.
     def _qr_decomposition(self):
-        m, n = self.rows, self.cols
-        R = self.copy()
-        reflectors = []
+        """
+        Performs QR decomposition using Householder reflections.
+        Returns a tuple (Q, R) where Q is orthogonal and R is upper triangular.
+        """
+        m = self.rows
+        n = self.cols
+        A_work = self.copy()
+        Q_accumulated = cMatrix.identity(m)
 
-        for k in range(n):
-            x = [R[i][k] for i in range(k, m)]
-            norm_x = math.sqrt(sum(float(val)**2 for val in x))
+        for k in range(min(m, n)):
+            x_list = [[A_work[i][k]] for i in range(k, m)]
+            x = cMatrix(x_list)
+
+            norm_x = math.sqrt(sum(float(x[i][0])**2 for i in range(x.rows)))
             if norm_x == 0:
-                reflectors.append((k, [0]*len(x), 0))
-                continue
-            sign = 1 if x[0] >= 0 else -1
-            v = x.copy()
-            v[0] = v[0] + sign * norm_x
-            v_dot_v = sum(float(val)**2 for val in v)
-            beta = 2 / v_dot_v
+                H_k = cMatrix.identity(x.rows)
+            else:
+                s = 1 if x[0][0] >= 0 else -1
+                alpha = -s * norm_x
+                e1 = cMatrix([[1]] + [[0]] * (x.rows - 1))
+                u = x - (alpha * e1)
+                norm_u = math.sqrt(sum(float(u[i][0])**2 for i in range(u.rows)))
+                if norm_u == 0:
+                    v = u
+                else:
+                    v = (1 / norm_u) * u
+                vvt = v * v.T
+                H_k = cMatrix.identity(x.rows) - (2 * vvt)
 
-            for j in range(k, n):
-                dot = sum(v[i] * R[k+i][j] for i in range(m - k))
-                for i in range(m - k):
-                    R[k+i][j] = R[k+i][j] - beta * v[i] * dot
+            H_full = cMatrix.identity(m)
+            for i in range(k, m):
+                for j in range(k, m):
+                    H_full[i][j] = H_k[i - k][j - k]
 
-            reflectors.append((k, v, beta))
+            A_work = H_full * A_work
+            Q_accumulated = Q_accumulated * H_full
 
-        Q = cMatrix.identity(m)
-        for k, v, beta in reversed(reflectors):
-            for j in range(m):
-                dot = sum(v[i] * Q[k+i][j] for i in range(m - k))
-                for i in range(m - k):
-                    Q[k+i][j] = Q[k+i][j] - beta * v[i] * dot
-
-        return (Q, R)
+        return (Q_accumulated, A_work)
 
     @property
     def householder(self):
@@ -169,10 +176,17 @@ class cMatrix:
         adjugate = cMatrix(cofactors).T
         return adjugate * (1 / self.det)
 
+    # Ax = b -> Rx = Q^Tb
     def least_squares(self, b):
         if not b.rows == self.rows:
             raise ValueError("Incorrect dimensions for least squares. Matrix rows must match vector length.")
-        return NotImplemented
+        lhs = self.qr[1]
+        rhs = self.qr[0].T * b
+        x = [0] * self.cols
+        # Back substitution
+        for i in reversed(range(self.cols)):
+            x[i] = (rhs[i] - sum(lhs[i][j] * x[j] for j in range(i+1, self.cols))) / lhs[i][i]
+        return cMatrix([x])
 
     def __init__(self, contents: list[list]):
         if not all(len(row) == len(contents[0]) for row in contents):
@@ -180,7 +194,7 @@ class cMatrix:
         # Ints and Floats are converted to Fractions, Fractions are kept.
         if not all(isinstance(cell, (int, float, Fraction)) for row in contents for cell in row):
             raise ValueError("Matrix must contain only ints, floats, or Fractions")
-        self._row_major_contents = [[Fraction(cell).limit_denominator() if isinstance(cell, (int, float)) else cell for cell in row] for row in contents]
+        self._row_major_contents = [[Fraction(cell) if isinstance(cell, (int, float)) else cell for cell in row] for row in contents]
         self._cached_values = {}
 
     def copy(self):
@@ -202,12 +216,14 @@ class cMatrix:
 
     def __str__(self):
         # Align columns and decimal points.
-        max_widths = [max([len(f"{row[i]:.4f}" if isinstance(row[i], float) else str(row[i])) for row in self._row_major_contents]) for i in range(self.cols)]
+        max_widths = [max([len(f"{float(row[i]):.4f}" if isinstance(row[i], Fraction) and row[i].denominator > 10000 else f"{row[i]:.4f}" if isinstance(row[i], float) else str(row[i])) for row in self._row_major_contents]) for i in range(self.cols)]
         res = "\n"
         for row in self._row_major_contents:
             res += "|"
             for i in range(len(row)):
-                if isinstance(row[i], float):
+                if isinstance(row[i], Fraction) and row[i].denominator > 10000:
+                    res += f"{float(row[i]):>{max_widths[i]}.4f} "
+                elif isinstance(row[i], float):
                     res += f"{row[i]:>{max_widths[i]}.4f} "
                 else:
                     res += f"{str(row[i]):>{max_widths[i]}} "
@@ -262,8 +278,10 @@ if __name__ == "__main__":
                            [ 3,  0,  2,  4],
                            [ 1,  6, -7,  3]])
     print(f"Matrix:\n{test_matrix}")
-    print(f"Housholder Transformation:\n{test_matrix.householder}")
-    QR = test_matrix.qr
-    q = QR[0]
-    r = QR[1]
-    print(f"Q*R:\n{q*r}")
+    # QR decomposition tests:
+    Q, R = test_matrix.qr
+    print(f"Q:\n{Q}")
+    print(f"R:\n{R}")
+    print(f"QR:\n{Q * R}")
+    print(f"Q*Q^T:\n{Q * Q.T}")
+
