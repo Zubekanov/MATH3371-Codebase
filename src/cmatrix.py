@@ -20,6 +20,25 @@ class cMatrix:
             self._cached_values = {}
             return func(self, *args, **kwargs)
         return wrapper
+    
+    # Decorator to clean fraction and floating point errors after yucky matrix operations.
+    def _clean_fractions(func):
+        # Convert to int if the fraction is 1e-8 close to an integer, and convert to positive zero if the fraction is close to zero.
+        def wrapper(self, *args, **kwargs):
+            result = func(self, *args, **kwargs)
+            cleaned_contents = [
+                [
+                    Fraction(round(float(cell))) if abs(float(cell) - round(float(cell))) < 1e-8 
+                    else Fraction(0) if abs(float(cell)) < 1e-8 
+                    else cell
+                    for cell in row
+                ]
+                for row in self._row_major_contents
+            ]
+            # Assign the cleaned list-of-lists back to _row_major_contents.
+            self._row_major_contents = cleaned_contents
+            return result
+        return wrapper
 
     @staticmethod
     def identity(size: int):
@@ -138,16 +157,6 @@ class cMatrix:
 
         return (Q_accumulated, A_work)
 
-    @property
-    def householder(self):
-        if _cache_keys.householder.value not in self._cached_values.keys():
-            self._cached_values[_cache_keys.householder.value] = self._householder_transformation()
-        return self._cached_values[_cache_keys.householder.value]
-    
-    def _householder_transformation(self):
-        householder = cMatrix.identity(self.rows) - self * self.T * (2 / (self.norm() ** 2))
-        return householder
-
     def norm(self, p: int = 1, inf = False):
         if inf:
             if "inf_norm" not in self._cached_values.keys():
@@ -188,6 +197,7 @@ class cMatrix:
             x[i] = (rhs[i] - sum(lhs[i][j] * x[j] for j in range(i+1, self.cols))) / lhs[i][i]
         return cMatrix([x])
 
+    @_clean_fractions
     def __init__(self, contents: list[list]):
         if not all(len(row) == len(contents[0]) for row in contents):
             raise ValueError("Matrix must be rectangular")
