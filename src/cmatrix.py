@@ -12,6 +12,7 @@ class _cache_keys(Enum):
     qr          = "qr_decomposition"
     inverse     = "inverse"
     householder = "householder_transformation"
+    cholesky    = "cholesky_decomposition"
 
 class cMatrix:
     # Decorator to reset cache
@@ -35,7 +36,6 @@ class cMatrix:
                 ]
                 for row in self._row_major_contents
             ]
-            # Assign the cleaned list-of-lists back to _row_major_contents.
             self._row_major_contents = cleaned_contents
             return result
         return wrapper
@@ -85,11 +85,37 @@ class cMatrix:
         return det
 
     @property
+    def cholesky(self):
+        if _cache_keys.cholesky.value not in self._cached_values.keys():
+            self._cached_values[_cache_keys.cholesky.value] = self._cholesky_decomposition()
+        return self._cached_values[_cache_keys.cholesky.value]
+    
+    # A = R^T * R, with R upper triangular.
+    def _cholesky_decomposition(self):
+        n = self.rows
+        for i in range(n):
+            for j in range(i):
+                if self[i][j] != self[j][i]:
+                    raise ValueError("Matrix must be symmetric")
+        R = self.copy()
+        for i in range(n):
+            s = R[i][i] - sum(R[k][i] * R[k][i] for k in range(i))
+            if s <= 0:
+                raise ValueError("Matrix is not positive definite")
+            R[i][i] = Fraction(math.sqrt(float(s)))
+            for j in range(i+1, n):
+                s_off = R[i][j] - sum(R[k][i] * R[k][j] for k in range(i))
+                R[i][j] = s_off / R[i][i]
+                R[j][i] = Fraction(0)
+        return R.T
+
+    @property
     def lu(self):
         if _cache_keys.lu.value not in self._cached_values.keys():
             self._cached_values[_cache_keys.lu.value] = self._lu_decomposition()
         return self._cached_values[_cache_keys.lu.value]
     
+    # A = LU, L is lower triangular, U is upper triangular.
     def _lu_decomposition(self):
         # Check if any of the pivots are zero or very close to zero.
         if any(abs(self[i][i]) < 1e-10 for i in range(self.rows)):
@@ -117,6 +143,7 @@ class cMatrix:
         return self._cached_values[_cache_keys.qr.value]
     
     # Performs QR decomposition using Householder transformations.
+    # A = QR, Q is orthogonal, R is upper triangular.
     def _qr_decomposition(self):
         """
         Performs QR decomposition using Householder reflections.
@@ -196,6 +223,10 @@ class cMatrix:
         for i in reversed(range(self.cols)):
             x[i] = (rhs[i] - sum(lhs[i][j] * x[j] for j in range(i+1, self.cols))) / lhs[i][i]
         return cMatrix([x])
+
+    @property
+    def eigenpairs(self):
+        pass
 
     @_clean_fractions
     def __init__(self, contents: list[list]):
@@ -294,4 +325,11 @@ if __name__ == "__main__":
     print(f"R:\n{R}")
     print(f"QR:\n{Q * R}")
     print(f"Q*Q^T:\n{Q * Q.T}")
-
+    # Cholesky decomposition tests:
+    pd = cMatrix([[25, 15, -5],
+                  [15, 18,  0],
+                  [-5,  0, 11]])
+    print(f"Positive definite matrix:\n{pd}")
+    L = pd.cholesky
+    print(f"L:\n{L}")
+    print(f"L*L^T:\n{L * L.T}")
