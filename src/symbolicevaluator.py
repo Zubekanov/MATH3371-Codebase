@@ -47,6 +47,15 @@ class Expression:
             elif expression[curr_pos] in parentheses.values():
                 raise ValueError("Unmatched right parentheses")
             curr_pos += 1
+            
+        self.simplify()
+            
+    def simplify(self):
+        while True:
+            if len(self.symbolic_expression) == 1 and isinstance(self.symbolic_expression[0], Expression):
+                self.symbolic_expression = self.symbolic_expression[0].symbolic_expression
+            else:
+                break
     
     def __str__(self):
         res = "("
@@ -62,7 +71,6 @@ class Variable:
         self.name = name
     
     def __str__(self):
-        #DEBUG
         return "{" + self.name + "}"
 
 class Operator:
@@ -72,10 +80,9 @@ class Operator:
         self.symbol = symbol
     
     def __str__(self):
-        #DEBUG
         return "[" + self.symbol + "]"
 
 if __name__ == "__main__":
     # Testing errors are thrown properly
-    expression = Expression("777 / (dog + cat) * 3")
+    expression = Expression("(((((777 / (dog + cat) * 3)))))")
     print(expression)
