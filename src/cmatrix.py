@@ -55,15 +55,16 @@ class cMatrix:
             raise ValueError("Matrix must be square")
 
         if n == 1:
-            return matrix[0][0]
+            return matrix[0][0].simplify()
         if n == 2:
-            return matrix[0][0] * matrix[1][1] - matrix[0][1] * matrix[1][0]
+            return (matrix[0][0] * matrix[1][1] - matrix[0][1] * matrix[1][0]).simplify()
 
         det = 0
         for c in range(n):
             minor = [row[:c] + row[c+1:] for row in matrix[1:]]
             det += ((-1) ** c) * matrix[0][c] * self._calculate_determinant(minor)
-        return det
+            
+        return det.simplify()
 
     @property
     def cholesky(self):
@@ -208,6 +209,10 @@ class cMatrix:
     @property
     def eigenpairs(self):
         pass
+    
+    def simplify(self):
+        self._row_major_contents = [[cell.simplify() for cell in row] for row in self._row_major_contents]
+        self._cached_values = {}
 
     def copy(self):
         copy = cMatrix(self._row_major_contents)
@@ -284,9 +289,5 @@ class cMatrix:
         self._cached_values = {}
 
 if __name__ == "__main__":
-    test_matrix = cMatrix([[1, 2, 3], [4, 5, 6], [7, 8, 9]])
-    print(test_matrix)
-    test_imaginary_matrix = cMatrix([[1, 2 + 3*i, 3], [4, 5, 6], [7, 8, 9]])
-    print(test_imaginary_matrix)
-    test_imaginary_multiplication = (i * pi * test_imaginary_matrix)
-    print(test_imaginary_multiplication)
+    m = cMatrix([[1 + i, i], [7, 7* i]])
+    print(m.det)
