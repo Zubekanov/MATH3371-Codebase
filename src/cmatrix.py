@@ -1,7 +1,6 @@
 from enum import Enum
-import math
-from fractions import Fraction
-import sympy
+import sympy.functions.elementary.complexes as c
+from sympy import I as i, E as e, pi, sympify, sqrt
 
 class _cache_keys(Enum):
     cols        = "columns"
@@ -20,24 +19,6 @@ class cMatrix:
         def wrapper(self, *args, **kwargs):
             self._cached_values = {}
             return func(self, *args, **kwargs)
-        return wrapper
-    
-    # Decorator to clean fraction and floating point errors after yucky matrix operations.
-    def _clean_fractions(func):
-        # Convert to int if the fraction is 1e-8 close to an integer, and convert to positive zero if the fraction is close to zero.
-        def wrapper(self, *args, **kwargs):
-            result = func(self, *args, **kwargs)
-            cleaned_contents = [
-                [
-                    Fraction(round(float(cell))) if abs(float(cell) - round(float(cell))) < 1e-8 
-                    else Fraction(0) if abs(float(cell)) < 1e-8 
-                    else cell
-                    for cell in row
-                ]
-                for row in self._row_major_contents
-            ]
-            self._row_major_contents = cleaned_contents
-            return result
         return wrapper
 
     @staticmethod
@@ -102,11 +83,11 @@ class cMatrix:
             s = R[i][i] - sum(R[k][i] * R[k][i] for k in range(i))
             if s <= 0:
                 raise ValueError("Matrix is not positive definite")
-            R[i][i] = Fraction(math.sqrt(float(s)))
+            R[i][i] = sqrt(s)
             for j in range(i+1, n):
                 s_off = R[i][j] - sum(R[k][i] * R[k][j] for k in range(i))
                 R[i][j] = s_off / R[i][i]
-                R[j][i] = Fraction(0)
+                R[j][i] = sympify(0)
         return R.T
 
     @property
@@ -158,7 +139,7 @@ class cMatrix:
             x_list = [[A_work[i][k]] for i in range(k, m)]
             x = cMatrix(x_list)
 
-            norm_x = math.sqrt(sum(float(x[i][0])**2 for i in range(x.rows)))
+            norm_x = sqrt(sum(float(x[i][0])**2 for i in range(x.rows)))
             if norm_x == 0:
                 H_k = cMatrix.identity(x.rows)
             else:
@@ -166,7 +147,7 @@ class cMatrix:
                 alpha = -s * norm_x
                 e1 = cMatrix([[1]] + [[0]] * (x.rows - 1))
                 u = x - (alpha * e1)
-                norm_u = math.sqrt(sum(float(u[i][0])**2 for i in range(u.rows)))
+                norm_u = sqrt(sum(float(u[i][0])**2 for i in range(u.rows)))
                 if norm_u == 0:
                     v = u
                 else:
@@ -228,16 +209,6 @@ class cMatrix:
     def eigenpairs(self):
         pass
 
-    @_clean_fractions
-    def __init__(self, contents: list[list]):
-        if not all(len(row) == len(contents[0]) for row in contents):
-            raise ValueError("Matrix must be rectangular")
-        # Ints and Floats are converted to Fractions, Fractions are kept.
-        if not all(isinstance(cell, (int, float, Fraction)) for row in contents for cell in row):
-            raise ValueError("Matrix must contain only ints, floats, or Fractions")
-        self._row_major_contents = [[Fraction(cell) if isinstance(cell, (int, float)) else cell for cell in row] for row in contents]
-        self._cached_values = {}
-
     def copy(self):
         copy = cMatrix(self._row_major_contents)
         copy._cached_values = self._cached_values.copy()
@@ -257,16 +228,11 @@ class cMatrix:
 
     def __str__(self):
         # Align columns and decimal points.
-        max_widths = [max([len(f"{float(row[i]):.4f}" if isinstance(row[i], Fraction) and row[i].denominator > 10000 else f"{row[i]:.4f}" if isinstance(row[i], float) else str(row[i])) for row in self._row_major_contents]) for i in range(self.cols)]
+        max_widths = [max([len(f"{row[i]}") for row in self._row_major_contents]) for i in range(self.cols)]
         res = "\n"
         for row in self._row_major_contents:
             res += "|"
             for i in range(len(row)):
-                if isinstance(row[i], Fraction) and row[i].denominator > 10000:
-                    res += f"{float(row[i]):>{max_widths[i]}.4f} "
-                elif isinstance(row[i], float):
-                    res += f"{row[i]:>{max_widths[i]}.4f} "
-                else:
                     res += f"{str(row[i]):>{max_widths[i]}} "
             res += "|\n"
         return res
@@ -274,14 +240,13 @@ class cMatrix:
     def __repr__(self):
         return self.__str__()
 
-    # TODO: Implement radd, rsub, rmul for numpy compatibility.
     def __add__(self, value):
         if isinstance(value, cMatrix):
             if value.cols != self.cols or value.rows != self.rows:
                 raise ValueError(f"Incorrect dimensions for addition. {self.rows}x{self.cols} != {value.rows}x{value.cols}")
             return cMatrix([[self[i][j] + value[i][j] for j in range(self.cols)] for i in range(self.rows)])
-        if isinstance(value, (int, float, Fraction)):
-            return cMatrix([[self[i][j] + value for j in range(self.cols)] for i in range(self.rows)])
+        
+        return cMatrix([[self[i][j] + value for j in range(self.cols)] for i in range(self.rows)])
         return NotImplemented
 
     def __radd__(self, value):
@@ -292,8 +257,8 @@ class cMatrix:
             if value.cols != self.cols or value.rows != self.rows:
                 raise ValueError(f"Incorrect dimensions for subtraction. {self.rows}x{self.cols} != {value.rows}x{value.cols}")
             return cMatrix([[self[i][j] - value[i][j] for j in range(self.cols)] for i in range(self.rows)])
-        if isinstance(value, (int, float, Fraction)):
-            return cMatrix([[self[i][j] - value for j in range(self.cols)] for i in range(self.rows)])
+        
+        return cMatrix([[self[i][j] - value for j in range(self.cols)] for i in range(self.rows)])
         return NotImplemented
     
     def __rsub__(self, value):
@@ -304,32 +269,24 @@ class cMatrix:
             if self.cols != value.rows:
                 raise ValueError(f"Incorrect dimensions for multiplication. {self.rows}x{self.cols} cannot multiply {value.rows}x{value.cols}")
             return cMatrix([[sum(self[i][k] * value[k][j] for k in range(self.cols)) for j in range(value.cols)] for i in range(self.rows)])
-        if isinstance(value, (int, float, Fraction)):
-            return cMatrix([[self[i][j] * value for j in range(self.cols)] for i in range(self.rows)])
+
+        return cMatrix([[self[i][j] * value for j in range(self.cols)] for i in range(self.rows)])
         return NotImplemented
     
     def __rmul__(self, value):
-        if isinstance(value, (int, float, Fraction)):
-            return cMatrix([[self[i][j] * value for j in range(self.cols)] for i in range(self.rows)])
+        return cMatrix([[self[i][j] * value for j in range(self.cols)] for i in range(self.rows)])
         return NotImplemented
+    
+    def __init__(self, contents: list[list]):
+        if not all(len(row) == len(contents[0]) for row in contents):
+            raise ValueError("Matrix must be rectangular")
+        self._row_major_contents = [[sympify(cell).simplify() for cell in row] for row in contents]
+        self._cached_values = {}
 
 if __name__ == "__main__":
-    test_matrix = cMatrix([[ 5, -1,  3,  0],
-                           [ 2,  3,  0,  1],
-                           [ 3,  0,  2,  4],
-                           [ 1,  6, -7,  3]])
-    print(f"Matrix:\n{test_matrix}")
-    # QR decomposition tests:
-    Q, R = test_matrix.qr
-    print(f"Q:\n{Q}")
-    print(f"R:\n{R}")
-    print(f"QR:\n{Q * R}")
-    print(f"Q*Q^T:\n{Q * Q.T}")
-    # Cholesky decomposition tests:
-    pd = cMatrix([[25, 15, -5],
-                  [15, 18,  0],
-                  [-5,  0, 11]])
-    print(f"Positive definite matrix:\n{pd}")
-    L = pd.cholesky
-    print(f"L:\n{L}")
-    print(f"L*L^T:\n{L * L.T}")
+    test_matrix = cMatrix([[1, 2, 3], [4, 5, 6], [7, 8, 9]])
+    print(test_matrix)
+    test_imaginary_matrix = cMatrix([[1, 2 + 3*i, 3], [4, 5, 6], [7, 8, 9]])
+    print(test_imaginary_matrix)
+    test_imaginary_multiplication = (i * pi * test_imaginary_matrix)
+    print(test_imaginary_multiplication)
