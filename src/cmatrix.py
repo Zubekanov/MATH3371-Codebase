@@ -24,6 +24,63 @@ class cMatrix:
     @staticmethod
     def identity(size: int):
         return cMatrix([[1 if i == j else 0 for j in range(size)] for i in range(size)])
+
+    # Finds the matrix satisfying G*lhs = rhs
+    @staticmethod
+    def solve_givens(lhs, rhs, p=None, q=None):
+        n = len(lhs)
+        if not p:
+            for i in range(n):
+                if lhs[i] != rhs[i]:
+                    p = i
+                    break
+            if not p:
+                raise ValueError("No entries differ in lhs and rhs")
+        if not q:
+            for i in range(p + 1, n):
+                if lhs[i] != rhs[i]:
+                    q = i
+                    break
+            if not q:
+                raise ValueError("Only one entries differ in lhs and rhs")
+        if len(rhs) != n:
+            raise ValueError("lhs and rhs must be the same dimension.")
+        if not (0 <= p < q < n):
+            raise ValueError("Require 0 <= p < q < n.")
+        
+        for i in range(n):
+            if i not in (p,q) and lhs[i] != rhs[i]:
+                raise ValueError(f"lhs and rhs differ in coordinate {i}, but only {p,q} are allowed to differ.")
+        
+        a, b   = lhs[p], lhs[q]
+        a_hat, b_hat = rhs[p], rhs[q]
+
+        lhs_len_sq = a*a + b*b
+        rhs_len_sq = a_hat*a_hat + b_hat*b_hat
+        if abs(lhs_len_sq - rhs_len_sq) > 1e-12:
+            raise ValueError("Rotation cannot change the 2D length.  Norms differ in the plane (p,q).")
+        
+        if lhs_len_sq == 0:
+            return cMatrix.identity(n)
+        
+        denom = sympify(lhs_len_sq)
+        dot   = a*a_hat + b*b_hat
+        cross = a*b_hat - b*a_hat
+        
+        c_val = dot   / denom
+        s_val = cross / denom
+        
+        length_cs = c_val*c_val + s_val*s_val
+        if abs(length_cs - 1.0) > 1e-10:
+            raise ValueError(f"Did not find a valid rotation, c^2 + s^2 = {length_cs}, expected 1.")
+        
+        G = cMatrix.identity(n)
+        G[p][p] = c_val
+        G[p][q] = s_val
+        G[q][p] = -s_val
+        G[q][q] = c_val
+        
+        return G
     
     @property
     def T(self):
@@ -84,7 +141,7 @@ class cMatrix:
             s = R[i][i] - sum(R[k][i] * R[k][i] for k in range(i))
             if s <= 0:
                 raise ValueError("Matrix is not positive definite")
-            R[i][i] = sqrt(s)
+            R[i][i] = sqrt(s, evaluate=False)
             for j in range(i+1, n):
                 s_off = R[i][j] - sum(R[k][i] * R[k][j] for k in range(i))
                 R[i][j] = s_off / R[i][i]
@@ -140,7 +197,7 @@ class cMatrix:
             x_list = [[A_work[i][k]] for i in range(k, m)]
             x = cMatrix(x_list)
 
-            norm_x = sqrt(sum(float(x[i][0])**2 for i in range(x.rows)))
+            norm_x = sqrt(sum(x[i][0]**2 for i in range(x.rows)), evaluate=False)
             if norm_x == 0:
                 H_k = cMatrix.identity(x.rows)
             else:
@@ -148,7 +205,7 @@ class cMatrix:
                 alpha = -s * norm_x
                 e1 = cMatrix([[1]] + [[0]] * (x.rows - 1))
                 u = x - (alpha * e1)
-                norm_u = sqrt(sum(float(u[i][0])**2 for i in range(u.rows)))
+                norm_u = sqrt(sum(u[i][0]**2 for i in range(u.rows)), evaluate=False)
                 if norm_u == 0:
                     v = u
                 else:
@@ -212,7 +269,6 @@ class cMatrix:
     
     def simplify(self):
         self._row_major_contents = [[cell.simplify() for cell in row] for row in self._row_major_contents]
-        self._cached_values = {}
 
     def copy(self):
         copy = cMatrix(self._row_major_contents)
@@ -288,6 +344,7 @@ class cMatrix:
         self._row_major_contents = [[sympify(cell).simplify() for cell in row] for row in contents]
         self._cached_values = {}
 
+
+
 if __name__ == "__main__":
-    m = cMatrix([[1 + i, i], [7, 7* i]])
-    print(m.det)
+    print(cMatrix.solve_givens([7, -1, 3, 2, 4], [7, -1, 5, 2, 0]))
