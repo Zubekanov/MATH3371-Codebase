@@ -123,107 +123,7 @@ class cMatrix:
             
         return det.simplify()
 
-    @property
-    def cholesky(self):
-        if _cache_keys.cholesky.value not in self._cached_values.keys():
-            self._cached_values[_cache_keys.cholesky.value] = self._cholesky_decomposition()
-        return self._cached_values[_cache_keys.cholesky.value]
-    
-    # A = R^T * R, with R upper triangular.
-    def _cholesky_decomposition(self):
-        n = self.rows
-        for i in range(n):
-            for j in range(i):
-                if self[i][j] != self[j][i]:
-                    raise ValueError("Matrix must be symmetric")
-        R = self.copy()
-        for i in range(n):
-            s = R[i][i] - sum(R[k][i] * R[k][i] for k in range(i))
-            if s <= 0:
-                raise ValueError("Matrix is not positive definite")
-            R[i][i] = sqrt(s, evaluate=False)
-            for j in range(i+1, n):
-                s_off = R[i][j] - sum(R[k][i] * R[k][j] for k in range(i))
-                R[i][j] = s_off / R[i][i]
-                R[j][i] = sympify(0)
-        return R.T
-
-    @property
-    def lu(self):
-        if _cache_keys.lu.value not in self._cached_values.keys():
-            self._cached_values[_cache_keys.lu.value] = self._lu_decomposition()
-        return self._cached_values[_cache_keys.lu.value]
-    
-    # A = LU, L is lower triangular, U is upper triangular.
-    def _lu_decomposition(self):
-        # Check if any of the pivots are zero or very close to zero.
-        if any(abs(self[i][i]) < 1e-10 for i in range(self.rows)):
-            # TODO: Implement pivoting.
-            raise ValueError("Matrix is singular")
-        result = self.copy()
-        # Perform the factorisation in place.
-        for i in range(result.rows):
-            for j in range(i+1, result.rows):
-                result[j][i] /= result[i][i]
-                for k in range(i+1, result.cols):
-                    result[j][k] -= result[j][i] * result[i][k]
-        # Separate the L and U matrices.
-        L = [[result[i][j] if i > j else 0 for j in range(result.cols)] for i in range(result.rows)]
-        # Add 1 to the diagonal of L.
-        for i in range(result.rows):
-            L[i][i] = 1
-        U = [[result[i][j] if i <= j else 0 for j in range(result.cols)] for i in range(result.rows)]
-        return (cMatrix(L), cMatrix(U))
-    
-    @property
-    def qr(self):
-        if _cache_keys.qr.value not in self._cached_values.keys():
-            self._cached_values[_cache_keys.qr.value] = self._qr_decomposition()
-        return self._cached_values[_cache_keys.qr.value]
-    
-    # Performs QR decomposition using Householder transformations.
-    # A = QR, Q is orthogonal, R is upper triangular.
-    def _qr_decomposition(self):
-        """
-        Performs QR decomposition using Householder reflections.
-        Returns a tuple (Q, R) where Q is orthogonal and R is upper triangular.
-        """
-        m = self.rows
-        n = self.cols
-        A_work = self.copy()
-        Q_accumulated = cMatrix.identity(m)
-
-        for k in range(min(m, n)):
-            x_list = [[A_work[i][k]] for i in range(k, m)]
-            x = cMatrix(x_list)
-
-            norm_x = sqrt(sum(x[i][0]**2 for i in range(x.rows)), evaluate=False)
-            if norm_x == 0:
-                H_k = cMatrix.identity(x.rows)
-            else:
-                s = 1 if x[0][0] >= 0 else -1
-                alpha = -s * norm_x
-                e1 = cMatrix([[1]] + [[0]] * (x.rows - 1))
-                u = x - (alpha * e1)
-                norm_u = sqrt(sum(u[i][0]**2 for i in range(u.rows)), evaluate=False)
-                if norm_u == 0:
-                    v = u
-                else:
-                    v = (1 / norm_u) * u
-                vvt = v * v.T
-                H_k = cMatrix.identity(x.rows) - (2 * vvt)
-
-            H_full = cMatrix.identity(m)
-            for i in range(k, m):
-                for j in range(k, m):
-                    H_full[i][j] = H_k[i - k][j - k]
-
-            A_work = H_full * A_work
-            Q_accumulated = Q_accumulated * H_full
-
-        return (Q_accumulated, A_work)
-
-    def norm(self, p: int = 1, inf = False):
+    def norm(self, p: int = 2, inf = False):
         if inf:
             if "inf_norm" not in self._cached_values.keys():
                 self._cached_values["inf_norm"] = self._calculate_norm(p, inf)
@@ -251,22 +151,6 @@ class cMatrix:
         adjugate = cMatrix(cofactors).T
         return adjugate * (1 / self.det)
 
-    # Ax = b -> Rx = Q^Tb
-    def least_squares(self, b):
-        if not b.rows == self.rows:
-            raise ValueError("Incorrect dimensions for least squares. Matrix rows must match vector length.")
-        lhs = self.qr[1]
-        rhs = self.qr[0].T * b
-        x = [0] * self.cols
-        # Back substitution
-        for i in reversed(range(self.cols)):
-            x[i] = (rhs[i] - sum(lhs[i][j] * x[j] for j in range(i+1, self.cols))) / lhs[i][i]
-        return cMatrix([x])
-
-    @property
-    def eigenpairs(self):
-        pass
-    
     def simplify(self):
         self._row_major_contents = [[cell.simplify() for cell in row] for row in self._row_major_contents]
 
