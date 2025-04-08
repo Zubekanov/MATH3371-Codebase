@@ -1,6 +1,7 @@
 from enum import Enum
 import sympy.functions.elementary.complexes as c
-from sympy import I as i, E as e, pi, sympify, sqrt
+from sympy import sympify
+from typing import Tuple
 
 class _cache_keys(Enum):
     cols        = "columns"
@@ -13,6 +14,8 @@ class _cache_keys(Enum):
     householder = "householder_transformation"
     cholesky    = "cholesky_decomposition"
 
+from sympy.core.basic import Basic
+
 class cMatrix:
     # Decorator to reset cache
     def _reset_cache(func):
@@ -22,12 +25,12 @@ class cMatrix:
         return wrapper
 
     @staticmethod
-    def identity(size: int):
+    def identity(size: int) -> 'cMatrix':
         return cMatrix([[1 if i == j else 0 for j in range(size)] for i in range(size)])
 
     # Finds the matrix satisfying G*lhs = rhs
     @staticmethod
-    def solve_givens(lhs, rhs, p=None, q=None):
+    def solve_givens(lhs, rhs, p=None, q=None) -> 'cMatrix':
         n = len(lhs)
         if not p:
             for i in range(n):
@@ -82,31 +85,136 @@ class cMatrix:
         
         return G
     
+    @staticmethod
+    def householder(lhs: 'cMatrix', rhs: 'cMatrix') -> 'cMatrix':
+        if lhs.cols != 1 or rhs.cols != 1:
+            raise ValueError("Householder transformation only works on column vectors.")
+        if lhs.rows != rhs.rows:
+            raise ValueError("lhs and rhs must have the same number of rows.")
+        
+        v = lhs - rhs
+        nonzero_scalar = next((v[i][0] for i in range(v.rows) if v[i][0] != 0), None)
+        if nonzero_scalar is not None:
+            v = v * (1 / nonzero_scalar)
+        tau = 2 / (v.norm(2) ** 2)
+        householder = cMatrix.identity(v.rows) - (tau * v * v.T)
+        
+        # The Householder matrix is the only useful matrix in this case, but we return the rest of the information for posterity.
+        return {
+            "H": householder,
+            "tau": tau,
+            "v": v
+        }
+
     @property
-    def T(self):
+    def LU(self):
+        if _cache_keys.lu.value not in self._cached_values.keys():
+            self._cached_values[_cache_keys.lu.value] = self._calculate_LU_decomposition()
+        return self._cached_values[_cache_keys.lu.value]
+    
+    def _calculate_LU_decomposition(self, pivot=True, print_steps=False):
+        # Pretty sure LU only works for square matrices, but we can run it on rectangular matrices anyway.
+        U = self.copy()
+        cols = self.cols
+        L = cMatrix.identity(U.rows)
+        pivots = []
+        for i in range(cols):
+            if pivot:
+                max_row = max(range(i, U.rows), key=lambda r: abs(U[r][i]))
+                pivot = cMatrix.identity(U.rows)
+                pivot.swap_rows(i, max_row)
+                pivots.append(pivot)
+                U = pivot * U
+            if U[i][i] == 0:
+                raise ValueError("Matrix is singular, cannot perform LU decomposition.")
+            
+            I = cMatrix.identity(U.rows)
+            for j in range(i + 1, U.rows):
+                L[j][i] = U[j][i] / U[i][i] 
+                I[j][i] = - L[j][i]
+
+            U = I * U
+
+            if print_steps:
+                if pivot:
+                    print(f"P_{i + 1} = \n{pivot}")
+                print(f"M_{i + 1} = \n{I}")
+                print(f"M_{i + 1} A_{i} = \n{U}")
+        
+        P = cMatrix.identity(U.rows)
+        if pivot:
+            for pivot in pivots:
+                P = pivot * P
+        
+        return {
+            "L": L,
+            "U": U,
+            "P": P
+        }
+
+    @property
+    def QR(self):
+        if _cache_keys.qr.value not in self._cached_values.keys():
+            self._cached_values[_cache_keys.qr.value] = self._calculate_QR_decomposition()
+        return self._cached_values[_cache_keys.qr.value]
+    
+    def _calculate_QR_decomposition(self):
+        R = self.copy()
+
+        # TODO FINISH
+    
+    @property
+    def T(self) -> 'cMatrix':
         if _cache_keys.transpose.value not in self._cached_values.keys():
             self._cached_values[_cache_keys.transpose.value] = [[self[j][i] for j in range(self.rows)] for i in range(self.cols)]
         return cMatrix(self._cached_values[_cache_keys.transpose.value])
     
     @property
-    def cols(self):
+    def cols(self) -> int:
         if _cache_keys.cols.value not in self._cached_values.keys():
             self._cached_values[_cache_keys.cols.value] = len(self._row_major_contents[0])
         return self._cached_values[_cache_keys.cols.value]
     
     @property
-    def rows(self):
+    def rows(self) -> int:
         if _cache_keys.rows.value not in self._cached_values.keys():
             self._cached_values[_cache_keys.rows.value] = len(self._row_major_contents)
         return self._cached_values[_cache_keys.rows.value]
     
     @property
-    def det(self):
+    def by_row(self) -> list[list]:
+        return self._row_major_contents.copy()
+    
+    @property
+    def by_col(self) -> list[list]:
+        return self.T._row_major_contents.copy()
+    
+    @property
+    def det(self) -> c:
         if _cache_keys.det.value not in self._cached_values.keys():
             self._cached_values[_cache_keys.det.value] = self._calculate_determinant(self._row_major_contents)
         return self._cached_values[_cache_keys.det.value]
     
-    def _calculate_determinant(self, matrix):
+    @property
+    def inverse(self) -> 'cMatrix':
+        if _cache_keys.inverse.value not in self._cached_values.keys():
+            self._cached_values[_cache_keys.inverse.value] = self._calculate_inverse()
+        return self._cached_values[_cache_keys.inverse.value]
+    
+    @_reset_cache
+    def swap_rows(self, first, second):
+        if first == second:
+            return
+        self._row_major_contents[first], self._row_major_contents[second] = self._row_major_contents[second], self._row_major_contents[first]
+
+    @_reset_cache
+    def swap_cols(self, first, second):
+        if first == second:
+            return
+        for i in range(self.rows):
+            self._row_major_contents[i][first], self._row_major_contents[i][second] = self._row_major_contents[i][second], self._row_major_contents[i][first]
+    
+    def _calculate_determinant(self, matrix) -> c:
         n = len(matrix)
         if any(len(row) != n for row in matrix):
             raise ValueError("Matrix must be square")
@@ -123,7 +231,7 @@ class cMatrix:
             
         return det.simplify()
 
-    def norm(self, p: int = 2, inf = False):
+    def norm(self, p: int = 2, inf = False) -> c:
         if inf:
             if "inf_norm" not in self._cached_values.keys():
                 self._cached_values["inf_norm"] = self._calculate_norm(p, inf)
@@ -133,31 +241,29 @@ class cMatrix:
                 self._cached_values[f"{p}_norm"] = self._calculate_norm(p, inf)
             return self._cached_values[f"{p}_norm"]
 
-    def _calculate_norm(self, p: int = 1, inf = False):
+    def _calculate_norm(self, p: int = 1, inf = False) -> c:
         if inf:
             return max(max(abs(cell) for cell in row) for row in self._row_major_contents)
         else:
             return (sum(sum(abs(cell) ** p for cell in row) for row in self._row_major_contents)) ** (1/p)
-
-    @property
-    def inverse(self):
-        if _cache_keys.inverse.value not in self._cached_values.keys():
-            self._cached_values[_cache_keys.inverse.value] = self._calculate_inverse()
-        return self._cached_values[_cache_keys.inverse.value]
     
-    def _calculate_inverse(self):
+    def _calculate_inverse(self) -> 'cMatrix':
         # Generate cofactors matrix.
         cofactors = [[((-1) ** (i+j)) * self._calculate_determinant([row[:j] + row[j+1:] for row in self._row_major_contents[:i] + self._row_major_contents[i+1:]]) for j in range(self.cols)] for i in range(self.rows)]
         adjugate = cMatrix(cofactors).T
         return adjugate * (1 / self.det)
 
-    def simplify(self):
+    def simplify(self) -> None:
         self._row_major_contents = [[cell.simplify() for cell in row] for row in self._row_major_contents]
 
-    def copy(self):
+    def copy(self) -> 'cMatrix':
         copy = cMatrix(self._row_major_contents)
         copy._cached_values = self._cached_values.copy()
         return copy
+    
+    @property
+    def shape(self) -> Tuple[int, int]:
+        return self.rows, self.cols
 
     def __eq__(self, value):
         if not isinstance(value, cMatrix):
@@ -222,13 +328,14 @@ class cMatrix:
         return cMatrix([[self[i][j] * value for j in range(self.cols)] for i in range(self.rows)])
         return NotImplemented
     
-    def __init__(self, contents: list[list]):
+    def __init__(self, contents: list):
+        if contents == []:
+            raise ValueError("Matrix cannot be empty")
+        if not isinstance(contents[0], list):
+            contents = [contents]
         if not all(len(row) == len(contents[0]) for row in contents):
             raise ValueError("Matrix must be rectangular")
+        if not all(isinstance(cell, (Basic, int, float, complex)) for row in contents for cell in row):
+            raise ValueError("Matrix must contain only numbers or sympy types")
         self._row_major_contents = [[sympify(cell).simplify() for cell in row] for row in contents]
         self._cached_values = {}
-
-
-
-if __name__ == "__main__":
-    print(cMatrix.solve_givens([7, -1, 3, 2, 4], [7, -1, 5, 2, 0]))
